@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+target/
+frontend/node_modules/
+frontend/dist/
+*.class
+*.jar
+*.log
+.idea/
+*.iml
+.DS_Store

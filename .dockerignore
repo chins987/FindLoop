@@ -1,0 +1,15 @@
+.git
+.github
+.vscode
+.idea
+.codex
+.agents
+.aws
+target
+frontend/node_modules
+frontend/dist
+frontend/.env
+frontend/.env.*
+.env
+.env.*
+*.log
