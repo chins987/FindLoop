@@ -1453,21 +1453,20 @@ export default function App() {
   const signInWithGoogle = async () => {
 
     const { error } = await supabase.auth.signInWithOAuth({
-
       provider: "google",
-
+      options: {
+        redirectTo: window.location.origin,
+        queryParams: {
+          prompt: "select_account",
+        },
+      },
     });
 
 
-
     if (error) {
-
       setToast(`Login failed: ${error.message}`);
-
       setTimeout(() => setToast(""), 3000);
-
     }
-
   };
 
   useEffect(() => {
@@ -1477,8 +1476,6 @@ export default function App() {
       setUser(data.session?.user ?? null);
 
     });
-
-
 
     const {
 
@@ -1490,8 +1487,6 @@ export default function App() {
 
     });
 
-
-
     return () => subscription.unsubscribe();
 
   }, []);
@@ -1501,21 +1496,13 @@ export default function App() {
     setCurrent(r); setTab("matches");
 
     if (created) { setToast("Report saved. Looking for matches…"); setTimeout(() => setToast(""), 2800); }
-
   };
 
   const openReport = (type) => {
-
     if (!user) {
-
       signInWithGoogle();
-
       return;
-
     }
-
-
-
     setReportType(type);
 
     setTab("report");
@@ -1823,3 +1810,4 @@ export default function App() {
   </MotionConfig >;
 
 }
+
