@@ -1,5 +1,7 @@
 package com.findloop.matching;
 
+import java.util.List;
+
 public record MatchResult(
         Long candidateId,
         String candidateTitle,
@@ -7,5 +9,9 @@ public record MatchResult(
         double locationScore,
         double dateTimeScore,
         double finalScore,
-        String explanation
+        String explanation,
+        List<String> sharedDetails,
+        Double distanceKm,
+        boolean sameLocationText,
+        Long timeGapMinutes
 ) {}

@@ -669,6 +669,29 @@ button.primary,
   font-weight: 700
 }
 
+.match-evidence {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--found-soft);
+  color: var(--ink);
+  font-size: var(--type-xs)
+}
+
+.match-evidence > strong {
+  display: block;
+  margin-bottom: 5px
+}
+
+.match-evidence ul {
+  margin: 0;
+  padding-left: 18px
+}
+
+.match-evidence li + li {
+  margin-top: 3px
+}
+
 .why {
   font-size: var(--type-xs);
   color: var(--muted)
@@ -2664,6 +2687,60 @@ body #root {
 
 .match .item-facts {
   margin: 8px 0
+}
+
+@media (min-width: 1101px) {
+  .match-list,
+  .browse-page .detail-matches .match-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch
+  }
+
+  .match-list .match {
+    display: grid;
+    grid-template-columns: 58px minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    align-items: start;
+    gap: 12px
+  }
+
+  .match-list .match > .ring {
+    grid-column: 1;
+    grid-row: 1;
+    width: 58px;
+    height: 58px
+  }
+
+  .match-list .match > .ring svg {
+    width: 58px;
+    height: 58px
+  }
+
+  .match-list .match > .body {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    min-width: 0
+  }
+
+  .match-list .match > .thumb {
+    grid-column: 1;
+    grid-row: 2;
+    width: 58px;
+    height: 58px
+  }
+
+  .match-list .match > button.primary {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-self: stretch;
+    min-height: 40px;
+    white-space: normal
+  }
+
+  .match-list .bar {
+    grid-template-columns: 70px minmax(0, 1fr) 26px;
+    gap: 6px
+  }
 }
 
 @media (max-width: 900px) {

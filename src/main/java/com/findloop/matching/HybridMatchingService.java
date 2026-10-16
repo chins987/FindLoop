@@ -26,6 +26,10 @@ public class HybridMatchingService {
             "wallet", Set.of("wallet", "purse", "billfold"),
             "earbuds", Set.of("earbuds", "earphones", "wireless earphones"));
 
+    private static final Set<String> EVIDENCE_STOP_WORDS = Set.of(
+            "the", "and", "with", "for", "from", "near", "at", "my", "a", "an", "in", "on", "of", "to",
+            "is", "was", "it", "this", "that", "lost", "found", "item", "report");
+
     private final ItemReportRepository repository;
 
     public HybridMatchingService(ItemReportRepository repository) {
@@ -49,6 +53,15 @@ public class HybridMatchingService {
         double geographic = geographicScore(a.getLatitude(), a.getLongitude(), b.getLatitude(), b.getLongitude());
         double location = geographic >= 0 ? geographic : locationScore(a.getLocation(), b.getLocation());
         double time = timeScore(a.getEventDateTime(), b.getEventDateTime());
+        String descriptionA = a.getTitle() + " " + a.getDescription();
+        String descriptionB = b.getTitle() + " " + b.getDescription();
+        List<String> sharedDetails = sharedDetails(descriptionA, descriptionB);
+        Double preciseDistanceKm = distanceKm(a.getLatitude(), a.getLongitude(), b.getLatitude(), b.getLongitude());
+        Double distanceKm = preciseDistanceKm == null ? null : Math.round(preciseDistanceKm * 1000.0) / 1000.0;
+        boolean sameLocationText = a.getLocation() != null && b.getLocation() != null
+                && !a.getLocation().isBlank() && !b.getLocation().isBlank()
+                && normalize(a.getLocation()).equals(normalize(b.getLocation()));
+        Long timeGapMinutes = timeGapMinutes(a.getEventDateTime(), b.getEventDateTime());
 
         double finalScore = LOCATION_WEIGHT * location
                 + DESCRIPTION_WEIGHT * description
@@ -59,7 +72,50 @@ public class HybridMatchingService {
                 description * 100, location * 100, time * 100);
 
         return new MatchResult(b.getId(), b.getTitle(), round(description * 100),
-                round(location * 100), round(time * 100), round(finalScore * 100), explanation);
+                round(location * 100), round(time * 100), round(finalScore * 100), explanation,
+                sharedDetails, distanceKm, sameLocationText, timeGapMinutes);
+    }
+
+    private List<String> sharedDetails(String first, String second) {
+        Set<String> sharedWords = tokenize(first);
+        sharedWords.retainAll(tokenize(second));
+        sharedWords.removeAll(EVIDENCE_STOP_WORDS);
+
+        Set<String> sharedConcepts = concepts(first);
+        sharedConcepts.retainAll(concepts(second));
+
+        // Include recognized item concepts (for example, "wallet") plus useful
+        // shared attributes, while avoiding repeated aliases such as "wallet" and
+        // "purse" in the same explanation.
+        Set<String> details = new HashSet<>();
+        for (String concept : sharedConcepts) {
+            details.add(concept.replace('_', ' '));
+            SYNONYMS.get(concept).stream()
+                    .flatMap(alias -> tokenize(alias).stream())
+                    .forEach(sharedWords::remove);
+        }
+        details.addAll(sharedWords);
+        return details.stream().sorted().limit(4).toList();
+    }
+
+    private Long timeGapMinutes(LocalDateTime first, LocalDateTime second) {
+        if (first == null || second == null) return null;
+        return Math.abs(Duration.between(first, second).toMinutes());
+    }
+
+    private Double distanceKm(Double latitudeA, Double longitudeA, Double latitudeB, Double longitudeB) {
+        if (latitudeA == null || longitudeA == null || latitudeB == null || longitudeB == null) return null;
+        if (!Double.isFinite(latitudeA) || !Double.isFinite(longitudeA)
+                || !Double.isFinite(latitudeB) || !Double.isFinite(longitudeB)
+                || Math.abs(latitudeA) > 90 || Math.abs(latitudeB) > 90
+                || Math.abs(longitudeA) > 180 || Math.abs(longitudeB) > 180) return null;
+        double lat1 = Math.toRadians(latitudeA), lat2 = Math.toRadians(latitudeB);
+        double dLat = lat2 - lat1, dLon = Math.toRadians(longitudeB - longitudeA);
+        double haversine = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        haversine = Math.max(0.0, Math.min(1.0, haversine));
+        double km = 6371.0088 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+        return km;
     }
 
     // Keyword overlap + curated synonym concepts; semantic embeddings are a later
@@ -141,11 +197,9 @@ public class HybridMatchingService {
         if (latitudeA == null || longitudeA == null || latitudeB == null || longitudeB == null) {
             return -1.0;
         }
-        double lat1 = Math.toRadians(latitudeA), lat2 = Math.toRadians(latitudeB);
-        double dLat = lat2 - lat1, dLon = Math.toRadians(longitudeB - longitudeA);
-        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
-                + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        double distanceKm = 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        Double calculatedDistanceKm = distanceKm(latitudeA, longitudeA, latitudeB, longitudeB);
+        if (calculatedDistanceKm == null) return -1.0;
+        double distanceKm = calculatedDistanceKm;
         if (distanceKm <= 0.25) return 1.0;
         if (distanceKm <= 1.0) return 0.9;
         if (distanceKm <= 3.0) return 0.7;

@@ -14,6 +14,12 @@ const CATEGORIES = ["Wallet", "Keys", "ID card", "Earphones", "Phone", "Bag", "B
 
 const fmt = (d) => (d ? new Date(d).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "Time unknown");
 
+const formatTimeGap = (minutes) => minutes < 60
+  ? `${Math.max(1, minutes)} ${minutes === 1 ? "minute" : "minutes"}`
+  : minutes < 1440
+    ? `${Math.round(minutes / 60)} ${Math.round(minutes / 60) === 1 ? "hour" : "hours"}`
+    : `${Math.round(minutes / 1440)} ${Math.round(minutes / 1440) === 1 ? "day" : "days"}`;
+
 const chips = (m) => [
 
   m.descriptionScore >= 60 && "Similar wording",
@@ -504,7 +510,6 @@ function Browse({ user, onContact }) {
     }, 250);
     return () => clearTimeout(timer);
   }, [type, q, category, near, radiusKm, run]);
-  const shown = items;
   const findNearby = () => {
     if (!navigator.geolocation) { setGeoMessage("Location search isn't available in this browser."); return; }
     setGeoMessage("Getting your location…");
@@ -516,7 +521,7 @@ function Browse({ user, onContact }) {
   };
   const clearNearby = () => { setNear(null); setGeoMessage(""); };
   const wide = window.matchMedia("(min-width: 901px)").matches;
-  const selected = shown.find((r) => r.id === selectedId) || (wide ? shown[0] || null : null);
+  const selected = items.find((r) => r.id === selectedId) || (wide ? items[0] || null : null);
   return (
     <section className={`browse-page${selected ? " has-selected" : ""}`}>
       <div className="browse-toolbar">
@@ -540,11 +545,11 @@ function Browse({ user, onContact }) {
       {geoMessage && <p className="hint" role="status">{geoMessage}</p>}
       <Notice error={error} />
       {loading && <Skeleton />}
-      {!loading && !error && <p className="browse-count" aria-live="polite">{shown.length} {shown.length === 1 ? "report" : "reports"}{q ? ` matching “${q}”` : ""}</p>}
-      {!loading && !error && !shown.length && <p className="inbox-empty">Nothing here yet. Submit a report to get started.</p>}
+      {!loading && !error && <p className="browse-count" aria-live="polite">{items.length} {items.length === 1 ? "report" : "reports"}{q ? ` matching “${q}”` : ""}</p>}
+      {!loading && !error && !items.length && <p className="inbox-empty">Nothing here yet. Submit a report to get started.</p>}
       <div className="browse-split">
         <ul className="report-list">
-          {shown.map((r) => (
+          {items.map((r) => (
             <li key={r.id}>
               <button type="button" className={`report-row${selected?.id === r.id ? " selected" : ""}`} aria-pressed={selected?.id === r.id} onClick={() => setSelectedId(r.id)}>
                 <span className="report-row-top">
@@ -724,7 +729,7 @@ function MatchResults({ report, user, onContact, onCountChange }) {
 
       {!loading && !error && !matches.length && <EmptyIllustration kind="matches" title="No matches yet" text="New reports are compared as they arrive. We’ll show possible matches here." />}
 
-      <motion.ul className="list" variants={list} initial="hidden" animate="show">
+      <motion.ul className="list match-list" variants={list} initial="hidden" animate="show">
 
         {matches.map((m, i) => {
 
@@ -759,6 +764,17 @@ function MatchResults({ report, user, onContact, onCountChange }) {
                 <Bar label="Time" value={m.dateTimeScore} />
 
                 <ul className="chips">{chips(m).map((t) => <li key={t}>{t}</li>)}</ul>
+
+                <section className="match-evidence" aria-label="Why this match">
+                  <strong>Why we suggested this</strong>
+                  <ul>
+                    {m.sharedDetails?.length > 0 && <li>Both reports mention {m.sharedDetails.map((detail) => `“${detail}”`).join(", ")}</li>}
+                    {m.distanceKm != null && <li>Reported locations are about {m.distanceKm < 1 ? `${Math.max(1, Math.round(m.distanceKm * 1000))} metres` : `${m.distanceKm.toFixed(1)} km`} apart in a straight line</li>}
+                    {m.distanceKm == null && m.sameLocationText && report.location && <li>Both reports list {report.location}</li>}
+                    {m.timeGapMinutes != null && <li>The events were about {formatTimeGap(m.timeGapMinutes)} apart</li>}
+                    {!m.sharedDetails?.length && m.distanceKm == null && !m.sameLocationText && m.timeGapMinutes == null && <li>We could not identify specific shared details.</li>}
+                  </ul>
+                </section>
 
                 <p className="why">Similarity is not proof of ownership. Verify before handing anything over.</p>
                 {user && <button type="button" className="not-match-button" onClick={async () => {
@@ -1592,7 +1608,7 @@ export default function App() {
 
           <button className={tab === "home" ? "active" : ""} onClick={() => navigate("home")}><span>⌂</span> Home</button>
 
-          <button className={tab === "browse" || tab === "matches" ? "active" : ""} onClick={() => navigate("browse")}><span>↗</span> Matches</button>
+          <button className={tab === "browse" ? "active" : ""} onClick={() => navigate("browse")}><span>↗</span> Browse</button>
 
           <button
 

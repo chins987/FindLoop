@@ -1,69 +1,123 @@
-# FindLoop
+# FindLoop — Lost & Found Platform
 
-Misplaced belongings are often hard to recover: reports are scattered across chats and noticeboards, details are easy to miss, and people may have no safe way to contact one another. **FindLoop** brings lost-and-found reports, discovery, explainable match suggestions, and private in-app communication into one application.
+FindLoop is a full-stack lost-and-found platform that helps people report misplaced belongings, discover potentially matching reports, and coordinate returns through private in-app communication.
 
-FindLoop is a Java and React college project built around a practical idea: a match score should help people find reports worth checking, while clear explanations, privacy boundaries, and an ownership question help people make their own decision. Matching is a heuristic ranking, never proof that an item belongs to a claimant.
+**Built with:** Java 25 · Spring Boot · React · Vite · Supabase PostgreSQL · Supabase Auth · Docker
+
+[**Live Demo**](https://findloop-r8jl.onrender.com/) · [**GitHub Repository**](https://github.com/chins987/FindLoop)
+
+> **Note:** The demo runs on Render. If the service has been idle, the first load may take up to a minute while it wakes up.
+
+<!-- Add screenshots or a short GIF here, e.g. a match card showing its score breakdown:
+![Match card with score breakdown](docs/screenshots/match-card.png)
+-->
+
+## Why FindLoop?
+
+Lost-and-found information is often scattered across messages, noticeboards, and informal groups. FindLoop brings reports and discovery into one place and ranks potential matches using explainable description, location, and event-time signals.
+
+Matching scores are heuristic rankings, not probabilities or proof of ownership. See [Status and limitations](#status-and-limitations).
 
 ## Features
 
-- **Lost and found reports:** Create reports with an item title, description, category, place, event date/time, and optional location details. Lost and found reports are kept distinct so the matcher can compare opposite report types.
-- **Explainable match suggestions:** Open reports of the opposite type are ranked using description, location, and event date/time signals. Descriptions use keyword overlap and a small curated synonym set; location uses coordinates when both reports have them and otherwise compares place names. Match cards show component scores and a short explanation.
-- **Match scores with limits:** The current score weights location at 45%, description at 40%, and event time at 15%. These are experimental weights, not probabilities. A high score does not prove ownership, and the matcher is not an image model or semantic-embedding system.
-- **Search and discovery:** Search reports by text and category, browse lost or found reports, and optionally search nearby when location permission is granted. Nearby search uses report coordinates; exact GPS coordinates are not shown in public report responses.
-- **Privacy-conscious contact and messaging:** Users can send contact requests and, after a request is accepted, use in-app conversations rather than posting personal contact details on a report. **Sending contact requests still needs end-to-end validation.**
-- **Optional private ownership verification:** A finder can keep an identifying detail private and ask a claimant to answer a question before contact proceeds. The answer is not part of the public report, and the verification step has passed its check. The subsequent contact-request flow still needs end-to-end testing.
-- **Report lifecycle and notifications:** Owners can mark reports returned or closed; non-open reports are excluded from open search and match candidates. Users can choose in-app match and reply notification preferences, including off, immediate, and daily roundup. Email and push delivery are not configured.
+- **Lost and found reports:** Create reports with a title, description, category, place, event date/time, and optional location details. Lost and found reports are kept distinct so the matcher can compare opposite types.
+- **Explainable match suggestions:** Open reports of the opposite type are ranked using description, location, and event date/time. Match cards show component scores and a short explanation.
+- **Search and discovery:** Search by text and category, browse lost or found reports, and optionally search nearby when location permission is granted. Exact GPS coordinates are never shown in public report responses.
+- **Privacy-conscious contact and messaging:** Contact requests and, once accepted, in-app conversations replace posting personal contact details on a report.
+- **Private ownership verification:** A finder can keep an identifying detail private and ask a claimant a question before contact proceeds. The answer is stored as a password hash and never appears in report views.
+- **Report lifecycle and notifications:** Owners can mark reports returned or closed; non-open reports are excluded from search and match candidates. Users can set in-app match and reply notifications to off, immediate, or daily roundup.
+
+## How matching works
+
+```
+score = 0.45 × location + 0.40 × description + 0.15 × event time
+```
+
+Each component is scored 0–100 and exposed separately so people can see why a match ranked where it did. The weights are experimental.
+
+| Signal | Method |
+| --- | --- |
+| Location | Haversine distance bands when both reports have coordinates; otherwise normalized place-name overlap |
+| Description | Keyword overlap plus a small curated synonym set |
+| Event time | Time gap between when items were lost/found (not when reports were created); a missing time gets a neutral score rather than counting as a mismatch |
+
+A small synthetic evaluation set is at `src/test/resources/matching-evaluation.psv` (four hand-written scenarios, Recall@3 = 1.00, MRR = 1.00). It is **not** an estimate of real-world accuracy. Expand it with consented, labeled examples before tuning weights.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    Browser[Browser: React app] -->|Same-origin page and /api requests| App[Spring Boot application<br/>Static frontend and REST API]
-    Browser -->|Supabase JavaScript client sign-in| Auth[Supabase Auth]
+    Render[Render hosting] --> Image[Docker image]
+    Image --> App[Spring Boot app<br/>serves React files and REST API]
+    Browser[User's browser] -->|Loads website| App
+    Browser -->|Signs in| Auth[Supabase Auth]
     Auth -->|Access token| Browser
-    App -.->|Issuer and JWK set used for token validation| Auth
-    App -->|JDBC over TLS| Database[Supabase PostgreSQL]
+    Browser -->|API requests<br/>token on protected actions| App
+    App -.->|Fetches signing keys JWKS| Auth
+    App --> Services[Services<br/>reports, matching, chat, notifications]
+    Services --> Repos[Spring Data JPA repositories]
+    Repos -->|JDBC over TLS| DB[(Supabase PostgreSQL)]
 ```
 
-The browser loads the React application from Spring Boot and calls the API at the same origin under `/api`. Supabase Auth handles sign-in; the API validates access tokens using the configured Supabase issuer and JWK set. Spring Boot connects to Supabase PostgreSQL through JDBC.
-
-The root Dockerfile uses a **multi-stage build**: Node.js and npm install frontend dependencies and Vite builds static assets; Maven packages the Java application with those assets; a Java 25 runtime image serves the frontend and API together. Node.js is part of the frontend development/build toolchain and is not the production backend.
+The browser loads the React app from Spring Boot and calls the API at the same origin under `/api`. Supabase Auth handles sign-in; the API validates bearer tokens using the configured Supabase issuer and JWK set. The app is deployed on Render as a Docker container built with a multi-stage Dockerfile (Vite builds the frontend, Maven packages it with the Java app, and a Java 25 runtime image serves both). Node.js is only part of the build toolchain, not the production backend.
 
 ## Technology stack
 
-| Area | Technology | Role in FindLoop |
-| --- | --- | --- |
-| Frontend | React | Builds the interactive report, search, match, settings, and messaging views in the browser. |
-| Frontend tooling | Node.js, npm, Vite | Node.js runs the frontend development/build tools; npm installs packages; Vite provides the development server and creates the production static bundle. Node.js does not serve the production API. |
-| Backend | Java 25, Spring Boot 3.5.6 | Implements the REST API and serves the built frontend in the container. |
-| Security | Spring Security OAuth2 Resource Server | Protects authenticated operations and validates Supabase-issued bearer JWTs. |
-| Data access | Spring Data JPA, Hibernate | Maps Java entities to relational data and performs persistence operations. |
-| Database | Supabase PostgreSQL | Stores reports, contact requests, conversations, ownership verifications, and notification data. |
-| Authentication | Supabase Auth, `@supabase/supabase-js` | Provides browser sign-in and access tokens used for authenticated API requests. |
-| Build tools | Maven, npm | Maven compiles and packages the Spring Boot application; npm installs frontend dependencies and runs Vite scripts. |
-| Deployment | Docker multi-stage build | Produces one container for the frontend and backend. Supabase remains an external managed service. No provider-specific hosting configuration is committed; deploy the image to a Docker-capable host. |
+| Area | Technology |
+| --- | --- |
+| Frontend | React, Vite, Node.js/npm (build tooling only) |
+| Backend | Java 25, Spring Boot 3.5.6 |
+| Security | Spring Security OAuth2 Resource Server (Supabase-issued JWTs) |
+| Data access | Spring Data JPA, Hibernate |
+| API docs | springdoc-openapi 2.8.17, OpenAPI 3, Swagger UI |
+| Database and auth | Supabase PostgreSQL, Supabase Auth (`@supabase/supabase-js`) |
+| Build | Maven, npm |
+| Deployment | Docker on Render (configured in the Render dashboard) |
 
-## Technical highlights
+## Quick start (Docker)
 
-- Matching uses provisional weights: `0.45 × location + 0.40 × description + 0.15 × event time`.
-- When both reports have coordinates, location similarity uses Haversine distance bands. Otherwise, it falls back to normalized place-name overlap. Missing event times receive a neutral score rather than being treated as a mismatch.
-- A match result exposes separate description, location, and time scores to help people understand the ranking. Scores are on a 0–100 scale and must not be interpreted as confidence probabilities.
-- The backend stores ownership answers as password hashes rather than returning them in report views.
-- Report event time is distinct from report creation time, so matching uses when an item was lost or found rather than when someone entered the report.
-- A small labeled evaluation set is included at `src/test/resources/matching-evaluation.psv`. It contains only four synthetic lost/found scenarios; the recorded baseline is Recall@3 = 1.00 and mean reciprocal rank (MRR) = 1.00. This tiny, hand-authored set is not an estimate of real-world matching accuracy. Expand it with consented, labeled examples before tuning weights.
+The fastest way to run the packaged app locally.
 
-## Run locally
+**Requirements:** Docker Desktop (with Docker Compose) and a Supabase project with PostgreSQL and Supabase Auth.
 
-### Requirements
+1. Copy `.env.example` to `.env` and fill in:
 
-- JDK 25 or newer
-- Maven 3.9 or newer
-- Node.js 22 or newer and npm
-- A Supabase project with PostgreSQL and Supabase Auth configured
+   ```dotenv
+   SUPABASE_DB_URL=jdbc:postgresql://YOUR_SESSION_POOLER_HOST:5432/postgres?sslmode=require
+   SUPABASE_DB_USERNAME=postgres.YOUR_PROJECT_REF
+   SUPABASE_DB_PASSWORD=YOUR_DATABASE_PASSWORD
+   SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+   SUPABASE_PUBLISHABLE_KEY=YOUR_SUPABASE_PUBLISHABLE_KEY
+   ```
 
-### Configure the backend
+   In Supabase, open **Connect** and choose **Session pooler** for the host and username. Keep the password in its own variable, and use the JDBC form above rather than the full `postgresql://...` string.
 
-For Docker, copy the root `.env.example` to `.env`. For a direct local Spring Boot run, set the database values and Supabase project URL in the PowerShell session where Maven will run:
+2. Build and run:
+
+   ```bash
+   docker compose up --build
+   ```
+
+3. Visit <http://localhost:8080>. Stop with `Ctrl+C`; run `docker compose down` to remove the container.
+
+`.env` is excluded from the image and must not be committed. The Render deployment gets its variables from the Render dashboard.
+
+## Run for development
+
+**Requirements:** JDK 25+, Maven 3.9+, Node.js 22+ with npm, and a Supabase project.
+
+### 1. Configure the backend
+
+macOS / Linux (bash/zsh):
+
+```bash
+export SUPABASE_DB_URL="jdbc:postgresql://YOUR_SUPABASE_DB_HOST:5432/postgres?sslmode=require"
+export SUPABASE_DB_USERNAME="YOUR_DATABASE_USERNAME"
+export SUPABASE_DB_PASSWORD="YOUR_DATABASE_PASSWORD"
+export SUPABASE_URL="https://YOUR_PROJECT.supabase.co"
+```
+
+Windows (PowerShell):
 
 ```powershell
 $env:SUPABASE_DB_URL = "jdbc:postgresql://YOUR_SUPABASE_DB_HOST:5432/postgres?sslmode=require"
@@ -72,11 +126,11 @@ $env:SUPABASE_DB_PASSWORD = "YOUR_DATABASE_PASSWORD"
 $env:SUPABASE_URL = "https://YOUR_PROJECT.supabase.co"
 ```
 
-Use a plain Supabase project URL for `SUPABASE_URL`. The backend derives the JWT issuer as `${SUPABASE_URL}/auth/v1` and the signing-key endpoint as `${SUPABASE_URL}/auth/v1/.well-known/jwks.json`; use the URL for the same Supabase project as the database and browser client.
+Use the plain Supabase project URL. The backend derives the JWT issuer as `${SUPABASE_URL}/auth/v1` and the signing keys from `${SUPABASE_URL}/auth/v1/.well-known/jwks.json`, so it must be the same project as the database and browser client.
 
-### Configure the frontend
+### 2. Configure the frontend
 
-Copy `frontend/.env.example` to `frontend/.env.local` and set the following Vite variables:
+Copy `frontend/.env.example` to `frontend/.env.local`:
 
 ```dotenv
 VITE_API_URL=http://localhost:8080/api
@@ -84,79 +138,77 @@ VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_SUPABASE_PUBLISHABLE_KEY
 ```
 
-These names match the Vite client. The publishable key is intended for browser use; never put a Supabase secret or service-role key in frontend configuration.
+The publishable key is meant for browser use. Never put a Supabase secret or service-role key in frontend configuration.
 
-### Start the development servers
+### 3. Start both servers
 
-In one terminal at the repository root:
+Terminal 1 (repository root):
 
-```powershell
+```bash
 mvn spring-boot:run
 ```
 
-In another terminal:
+Terminal 2:
 
-```powershell
+```bash
 cd frontend
 npm ci
 npm run dev
 ```
 
-Open the Vite URL shown in the terminal, usually `http://localhost:5173`. The Spring Boot API runs at `http://localhost:8080`. On Windows, `start-findloop.bat` starts both development servers in separate terminal windows.
+Open the Vite URL shown in the terminal (usually <http://localhost:5173>). The API runs at <http://localhost:8080>. On Windows, `start-findloop.bat` launches both servers in separate windows.
 
-## Run with Docker
+## API documentation
 
-The root `Dockerfile` builds the frontend and backend into one image. Supabase remains separate. Copy `.env.example` to `.env` and set these required runtime variables:
+With the backend running, open Swagger UI at <http://localhost:8080/swagger-ui/index.html>; the OpenAPI document is at <http://localhost:8080/v3/api-docs>. Public report reads need no token. For protected operations, click **Authorize** and enter a Supabase access token as a bearer credential.
 
-```dotenv
-SUPABASE_DB_URL=jdbc:postgresql://YOUR_SUPABASE_DB_HOST:5432/postgres?sslmode=require
-SUPABASE_DB_USERNAME=YOUR_DATABASE_USERNAME
-SUPABASE_DB_PASSWORD=YOUR_DATABASE_PASSWORD
-SUPABASE_URL=https://udbkycrpxyzwgootygbj.supabase.co/rest/v1/
-SUPABASE_PUBLISHABLE_KEY=YOUR_SUPABASE_PUBLISHABLE_KEY
-```
+## Testing and quality checks
 
-Build and run from the repository root:
-
-```powershell
-docker build -t findloop .
-docker run --env-file .env -p 8080:8080 findloop
-```
-
-Visit `http://localhost:8080`. The container listens on `PORT`, defaulting to `8080`; a hosting platform can supply a different port. The Docker image reads Supabase values at runtime, and `.env` is excluded from the image and should not be committed. `APP_CORS_ALLOWED_ORIGINS` is an optional Spring Security CORS setting, defaulting to `http://localhost:5173`; the report controller also declares its own localhost origins, so this setting alone does not currently enable a separate production frontend origin. Same-origin use does not need a cross-origin browser request.
-
-The repository provides the Docker image, not a configured hosting account or provider-specific deployment file. Choose a Docker-capable host, set the runtime environment variables there, and use the port supplied by that host. Supabase remains the external database and authentication provider.
-
-## Honest limitations
-
-- Matching uses keywords, a small curated synonym set, approximate location signals, and date/time buckets. It does not use semantic embeddings or AI photo matching.
-- Location search by radius requires report coordinates. If coordinates are absent, match scoring uses place-name text instead.
-- The four-case synthetic evaluation set is too small to support real-world performance claims. Matching scores are rankings, not probabilities or proof of ownership.
-- Photos are not currently stored, compared, or used to generate descriptions.
-- Notifications are in-app only; email and push delivery are not configured.
-- Ownership verification has passed its verification check, but sending a contact request after verification still needs end-to-end validation.
-- Hibernate is configured with `ddl-auto=update`. Before real users rely on the service, introduce reviewed database migrations and verify backup and restore procedures.
-
-## Useful commands
-
-Run backend tests, including the synthetic matching evaluation:
-
-```powershell
-mvn test
-```
-
-Check the frontend lint rules and create a production bundle:
-
-```powershell
+```bash
+mvn test                  # backend tests, including matching evaluation and edge cases
 cd frontend
-npm run lint
-npm run build
+npm run lint              # frontend lint rules
+npm run build             # production bundle
 ```
+
+`HybridMatchingServiceTest` covers null/blank descriptions, missing event times, missing or invalid coordinates, geographic band boundaries, opposite-type/open candidate filtering, source-report exclusion, ranking, and the ten-result limit.
+
+## Status and limitations
+
+| Area | Status |
+| --- | --- |
+| Reports, search, nearby search | Implemented |
+| Explainable matching | Implemented (heuristic; tiny synthetic evaluation set) |
+| Supabase sign-in and protected API | Implemented |
+| Ownership verification check | Implemented and passing its check |
+| Contact request after verification | **Needs end-to-end validation** |
+| In-app notifications | Implemented |
+| Email and push notifications | Not configured |
+| Photo storage or matching | Not implemented |
+| Database migrations | Not yet; Hibernate uses `ddl-auto=update` |
+
+- Matching uses keywords, a small synonym set, approximate location, and time buckets. It does not use semantic embeddings or image matching.
+- Radius search requires report coordinates; without them, scoring falls back to place-name text.
+- Scores are rankings, not probabilities or proof of ownership.
+- Before real users rely on the service, introduce reviewed database migrations (Flyway or Liquibase) and verify backup and restore procedures.
+- `APP_CORS_ALLOWED_ORIGINS` (default `http://localhost:5173`) configures Spring Security CORS, but the report controller also declares its own localhost origins, so this setting alone does not enable a separate production frontend origin. Same-origin use needs no CORS.
+
+## Roadmap
+
+- Enable Row Level Security on all Supabase tables so the browser's publishable key cannot reach them through the Data API
+- Switch to Flyway/Liquibase migrations with `ddl-auto=validate`
+- Normalize ownership answers (trim, lowercase) before hashing, and add attempt limits
+- Rate limiting on verification, contact requests, and messaging
+- Use category in match scoring
+- GitHub Actions CI, Dependabot, health endpoint, and a committed `render.yaml`
+- Integration tests with Testcontainers and security tests for 401/403 on protected endpoints
+- Grow the labeled evaluation set to 20–30 consented, varied cases
 
 ## Project structure
 
 ```text
-frontend/   React and Vite client
-src/        Spring Boot API, matching, notifications, and tests
-Dockerfile  Multi-stage image for the frontend and backend
+frontend/      React and Vite client
+src/           Spring Boot API, matching, notifications, and tests
+Dockerfile     Multi-stage image for the frontend and backend
+compose.yaml   Local Docker Compose configuration
 ```
